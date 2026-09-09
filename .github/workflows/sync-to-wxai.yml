@@ -1,27 +1,33 @@
-name: Sync notebook to watsonx.ai
+name: Sync Notebook to watsonx.ai
 
 on:
   push:
     branches:
       - main
     paths:
-      - "wxai_git_poc.ipynb"
+      - 'notebooks/**.ipynb'   # only triggers when notebooks are modified
+  workflow_dispatch:           # adds a "Run workflow" button for manual runs
 
 jobs:
-  sync:
-    name: Push notebook asset to wx.ai project
+  deploy-to-watsonx:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: pip install "ibm-watson-machine-learning==1.0.327" --quiet
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Sync notebook to wx.ai project
+      - name: Install IBM watsonx SDK
+        run: |
+          python -m pip install --upgrade pip
+          pip install ibm-watsonx-ai
+
+      - name: Run Deploy Script
         env:
           IBM_CLOUD_API_KEY: ${{ secrets.IBM_CLOUD_API_KEY }}
-          WX_PROJECT_ID: ${{ secrets.WX_PROJECT_ID }}
-          WX_URL: ${{ secrets.WX_URL }}
-        run: python3 .github/scripts/wxai_sync.py wxai_git_poc.ipynb
+          WATSONX_PROJECT_ID: ${{ secrets.WX_PROJECT_ID }}
+        run: python scripts/deploy_notebook.py
