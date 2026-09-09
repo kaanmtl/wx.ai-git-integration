@@ -32,20 +32,26 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
-      # ── 3. Check if the notebook asset already exists in the project ───────
+      # ── 3. Search for existing notebook asset via catalog search API ───────
       - name: Find existing notebook asset ID
         id: find_asset
         run: |
-          RESPONSE=$(curl -s -X GET \
-            "${{ secrets.WX_URL }}/v2/assets?project_id=${{ secrets.WX_PROJECT_ID }}&name=wxai_git_poc.ipynb" \
+          RESPONSE=$(curl -s -X POST \
+            "${{ secrets.WX_URL }}/v2/asset_types/notebook/search?project_id=${{ secrets.WX_PROJECT_ID }}" \
             -H "Authorization: Bearer ${{ steps.iam.outputs.token }}" \
-            -H "Content-Type: application/json")
+            -H "Content-Type: application/json" \
+            -d '{"query":"asset.name:wxai_git_poc.ipynb"}')
+
+          echo "Search response: $RESPONSE"
 
           ASSET_ID=$(echo "$RESPONSE" | python3 -c "
           import sys, json
-          d = json.load(sys.stdin)
-          resources = d.get('resources', [])
-          print(resources[0]['metadata']['asset_id'] if resources else '')
+          try:
+              d = json.load(sys.stdin)
+              results = d.get('results', [])
+              print(results[0]['metadata']['asset_id'] if results else '')
+          except Exception:
+              print('')
           ")
 
           echo "asset_id=$ASSET_ID" >> "$GITHUB_OUTPUT"
@@ -59,10 +65,10 @@ jobs:
       - name: Delete existing notebook asset
         if: steps.find_asset.outputs.asset_id != ''
         run: |
-          curl -s -X DELETE \
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
             "${{ secrets.WX_URL }}/v2/assets/${{ steps.find_asset.outputs.asset_id }}?project_id=${{ secrets.WX_PROJECT_ID }}" \
-            -H "Authorization: Bearer ${{ steps.iam.outputs.token }}" \
-            -o /dev/null -w "HTTP %{http_code}\n"
+            -H "Authorization: Bearer ${{ steps.iam.outputs.token }}")
+          echo "Delete HTTP: $HTTP"
 
       # ── 4b. Upload the notebook as a new asset ─────────────────────────────
       - name: Upload notebook to wx.ai project
@@ -71,11 +77,11 @@ jobs:
             -X POST \
             "${{ secrets.WX_URL }}/v2/assets?project_id=${{ secrets.WX_PROJECT_ID }}" \
             -H "Authorization: Bearer ${{ steps.iam.outputs.token }}" \
-            -F "file=@wxai_git_poc.ipynb;type=application/json" \
-            -F 'asset={"metadata":{"name":"wxai_git_poc.ipynb","asset_type":"notebook","origin_country":"us"},"entity":{"notebook":{"language":{"name":"python3","version":"3.11"}}}}; type=application/json')
+            -F "file=@wxai_git_poc.ipynb;type=application/octet-stream" \
+            -F 'asset={"metadata":{"name":"wxai_git_poc.ipynb","asset_type":"notebook","origin_country":"us"},"entity":{"notebook":{"language":{"name":"python3","version":"3.11"}}}};type=application/json')
 
           echo "Upload HTTP status: $HTTP_STATUS"
-          cat /tmp/upload_response.json | python3 -m json.tool || true
+          python3 -m json.tool /tmp/upload_response.json || cat /tmp/upload_response.json
 
           if [ "$HTTP_STATUS" -ge 400 ]; then
             echo "❌ Upload failed with status $HTTP_STATUS"
