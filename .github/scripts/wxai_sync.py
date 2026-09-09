@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-wxai_sync.py — syncs a notebook to a watsonx.ai SaaS project using the WML SDK.
+wxai_sync.py — syncs a notebook to a watsonx.ai SaaS project.
 
 Reads credentials from environment variables:
   IBM_CLOUD_API_KEY  — IBM Cloud API key
   WX_PROJECT_ID      — watsonx.ai project ID
-  WX_URL             — watsonx.ai base URL (e.g. https://api.dataplatform.cloud.ibm.com)
+  WX_URL             — e.g. https://us-south.ml.cloud.ibm.com
 
 Usage:
   python3 wxai_sync.py <notebook_file>
 """
 
-import json
 import os
 import sys
 
@@ -21,14 +20,14 @@ def main(notebook_file):
     project_id = os.environ["WX_PROJECT_ID"]
     wx_url     = os.environ["WX_URL"]
 
-    from ibm_watson_machine_learning import APIClient
+    from ibm_watsonx_ai import APIClient, Credentials
 
-    client = APIClient({"url": wx_url, "apikey": api_key})
-    client.set.default_project(project_id)
+    credentials = Credentials(url=wx_url, api_key=api_key)
+    client = APIClient(credentials, project_id=project_id)
 
     notebook_name = os.path.basename(notebook_file)
 
-    # Delete existing asset with same name if present
+    # Delete existing data asset with same name if present
     assets = client.data_assets.get_details()
     for asset in assets.get("resources", []):
         if asset.get("metadata", {}).get("name") == notebook_name:
