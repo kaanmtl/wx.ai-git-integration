@@ -1,0 +1,84 @@
+name: Sync notebook to watsonx.ai
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "wxai_git_poc.ipynb"   # only trigger when the notebook itself changes
+
+jobs:
+  sync:
+    name: Push notebook asset to wx.ai project
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Check out the repo ──────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Get an IBM Cloud IAM bearer token ──────────────────────────────
+      - name: Obtain IAM token
+        id: iam
+        run: |
+          RESPONSE=$(curl -s -X POST \
+            "https://iam.cloud.ibm.com/identity/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=urn:ibm:params:oauth:grant-type:apikey&apikey=${{ secrets.IBM_CLOUD_API_KEY }}")
+
+          TOKEN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+          # Mask the token so it never appears in logs
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      # ── 3. Check if the notebook asset already exists in the project ───────
+      - name: Find existing notebook asset ID
+        id: find_asset
+        run: |
+          RESPONSE=$(curl -s -X GET \
+            "${{ secrets.WX_URL }}/v2/assets?project_id=${{ secrets.WX_PROJECT_ID }}&name=wxai_git_poc.ipynb" \
+            -H "Authorization: Bearer ${{ steps.iam.outputs.token }}" \
+            -H "Content-Type: application/json")
+
+          ASSET_ID=$(echo "$RESPONSE" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          resources = d.get('resources', [])
+          print(resources[0]['metadata']['asset_id'] if resources else '')
+          ")
+
+          echo "asset_id=$ASSET_ID" >> "$GITHUB_OUTPUT"
+          if [ -n "$ASSET_ID" ]; then
+            echo "Found existing asset: $ASSET_ID"
+          else
+            echo "No existing asset found — will create new"
+          fi
+
+      # ── 4a. Delete the old asset (wx.ai requires delete + recreate) ────────
+      - name: Delete existing notebook asset
+        if: steps.find_asset.outputs.asset_id != ''
+        run: |
+          curl -s -X DELETE \
+            "${{ secrets.WX_URL }}/v2/assets/${{ steps.find_asset.outputs.asset_id }}?project_id=${{ secrets.WX_PROJECT_ID }}" \
+            -H "Authorization: Bearer ${{ steps.iam.outputs.token }}" \
+            -o /dev/null -w "HTTP %{http_code}\n"
+
+      # ── 4b. Upload the notebook as a new asset ─────────────────────────────
+      - name: Upload notebook to wx.ai project
+        run: |
+          HTTP_STATUS=$(curl -s -o /tmp/upload_response.json -w "%{http_code}" \
+            -X POST \
+            "${{ secrets.WX_URL }}/v2/assets?project_id=${{ secrets.WX_PROJECT_ID }}" \
+            -H "Authorization: Bearer ${{ steps.iam.outputs.token }}" \
+            -F "file=@wxai_git_poc.ipynb;type=application/json" \
+            -F 'asset={"metadata":{"name":"wxai_git_poc.ipynb","asset_type":"notebook","origin_country":"us"},"entity":{"notebook":{"language":{"name":"python3","version":"3.11"}}}}; type=application/json')
+
+          echo "Upload HTTP status: $HTTP_STATUS"
+          cat /tmp/upload_response.json | python3 -m json.tool || true
+
+          if [ "$HTTP_STATUS" -ge 400 ]; then
+            echo "❌ Upload failed with status $HTTP_STATUS"
+            exit 1
+          fi
+          echo "✅ Notebook synced to wx.ai project"
