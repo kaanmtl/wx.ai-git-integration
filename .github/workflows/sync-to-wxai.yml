@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: pip install ibm-watsonx-ai --quiet
+        run: pip install "ibm-watson-machine-learning==1.0.327" --quiet
 
       - name: Sync notebook to wx.ai project
         env:

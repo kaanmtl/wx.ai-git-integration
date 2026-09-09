@@ -21,36 +21,39 @@ def main(notebook_file):
     project_id = os.environ["WX_PROJECT_ID"]
     wx_url     = os.environ["WX_URL"].rstrip("/")
 
-    from ibm_watsonx_ai import APIClient, Credentials
+    from ibm_watson_machine_learning import APIClient
+    from ibm_watson_machine_learning.metanames import NotebookMetaNames
 
-    credentials = Credentials(url=wx_url, api_key=api_key)
-    client = APIClient(credentials, project_id=project_id)
+    client = APIClient({"url": wx_url, "apikey": api_key})
+    client.set.default_project(project_id)
 
     notebook_name = os.path.basename(notebook_file)
 
     # ── Delete existing notebook asset with same name ─────────────────────────
-    assets = client.data_assets.get_details()
-    for asset in assets.get("resources", []):
-        meta = asset.get("metadata", {})
-        entity = asset.get("entity", {})
-        # notebook assets have asset_type == "notebook"
-        if meta.get("name") == notebook_name and entity.get("asset", {}).get("asset_type") == "notebook":
-            existing_id = meta["asset_id"]
-            print(f"Deleting existing notebook asset {existing_id}...")
-            client.data_assets.delete(existing_id)
-            print("Deleted.")
-            break
+    try:
+        details = client.repository.get_details()
+        for asset in details.get("resources", []):
+            meta = asset.get("metadata", {})
+            if meta.get("name") == notebook_name and meta.get("asset_type") == "notebook":
+                asset_id = meta["asset_id"]
+                print(f"Deleting existing notebook {asset_id}...")
+                client.repository.delete(asset_id)
+                print("Deleted.")
+                break
+    except Exception as e:
+        print(f"Warning during cleanup: {e}")
 
-    # ── Create proper Notebook asset using the notebook store ─────────────────
+    # ── Read notebook content ─────────────────────────────────────────────────
     with open(notebook_file) as f:
         nb_content = json.load(f)
 
+    # ── Store as a proper Notebook asset ─────────────────────────────────────
     meta_props = {
-        client.repository.NotebookMetaNames.NAME: notebook_name,
-        client.repository.NotebookMetaNames.RUNTIME_UID: "default_py3.11",
+        NotebookMetaNames.NAME: notebook_name,
+        NotebookMetaNames.RUNTIME_UID: "default_py3.11",
     }
 
-    print(f"Creating notebook asset '{notebook_name}'...")
+    print(f"Storing notebook asset '{notebook_name}'...")
     stored = client.repository.store_notebook(
         meta_props=meta_props,
         notebook=nb_content,
