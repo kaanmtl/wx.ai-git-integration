@@ -92,20 +92,30 @@ def resolve_env_guid(token: str, project_id: str) -> str:
     )
     print(f"Environments HTTP {status}")
     resources = resp.get("resources", [])
+    if not resources:
+        print("❌ No notebook environments found")
+        print(json.dumps(resp, indent=2))
+        sys.exit(1)
+    # Log the first resource's metadata keys so we can verify the id field name
+    print(f"First env metadata keys: {list(resources[0].get('metadata', {}).keys())}")
     for env in resources:
+        meta = env.get("metadata", {})
         name = env.get("entity", {}).get("name", "").lower()
-        if "3.11" in name:
-            guid = env["metadata"]["guid"]
+        # /v2/environments uses asset_id; fall back to guid if present
+        guid = meta.get("asset_id") or meta.get("guid") or meta.get("environment_id")
+        if "3.11" in name and guid:
             print(f"Found env: {env['entity']['name']} → {guid}")
             return guid
-    if resources:
-        first = resources[0]
-        guid = first["metadata"]["guid"]
-        print(f"Using first available env: {first['entity']['name']} → {guid}")
-        return guid
-    print("❌ No notebook environments found")
-    print(json.dumps(resp, indent=2))
-    sys.exit(1)
+    # Fall back to first available
+    first = resources[0]
+    meta  = first.get("metadata", {})
+    guid  = meta.get("asset_id") or meta.get("guid") or meta.get("environment_id")
+    if not guid:
+        print("❌ Could not find environment ID — full first resource:")
+        print(json.dumps(first, indent=2))
+        sys.exit(1)
+    print(f"Using first available env: {first['entity']['name']} → {guid}")
+    return guid
 
 
 def find_existing_notebook(token: str, project_id: str) -> tuple[str | None, str | None]:
