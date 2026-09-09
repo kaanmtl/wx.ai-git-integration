@@ -14,96 +14,49 @@ Usage:
 import json
 import os
 import sys
-import urllib.request
-import urllib.error
-
-
-def get_iam_token(api_key):
-    data = f"grant_type=urn:ibm:params:oauth:grant-type:apikey&apikey={api_key}".encode()
-    req = urllib.request.Request(
-        "https://iam.cloud.ibm.com/identity/token",
-        data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read())["access_token"]
-
-
-def api_call(method, url, token, body=None):
-    data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(
-        url, data=data, method=method,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req) as resp:
-            raw = resp.read()
-            return resp.status, json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        raw = e.read()
-        try:
-            return e.code, json.loads(raw)
-        except Exception:
-            return e.code, {"raw": raw.decode(errors="replace")}
 
 
 def main(notebook_file):
-    api_key      = os.environ["IBM_CLOUD_API_KEY"]
-    project_id   = os.environ["WX_PROJECT_ID"]
-    platform_url = os.environ["WX_PLATFORM_URL"].rstrip("/")
+    api_key    = os.environ["IBM_CLOUD_API_KEY"]
+    project_id = os.environ["WX_PROJECT_ID"]
+    wx_url     = os.environ["WX_URL"].rstrip("/")
 
-    # IAM token always comes from cloud.ibm.com regardless of region
-    print("Obtaining IAM token...")
-    token = get_iam_token(api_key)
-    print("Token obtained.")
+    from ibm_watsonx_ai import APIClient, Credentials
+
+    credentials = Credentials(url=wx_url, api_key=api_key)
+    client = APIClient(credentials, project_id=project_id)
 
     notebook_name = os.path.basename(notebook_file)
 
-    # ── Find and delete existing notebook asset with same name ────────────────
-    status, body = api_call(
-        "POST",
-        f"{platform_url}/v2/asset_types/notebook/search?project_id={project_id}",
-        token,
-        {"query": f"asset.name:{notebook_name}"},
-    )
-    print(f"Search HTTP {status}")
-    if status < 300:
-        for result in body.get("results", []):
-            asset_id = result["metadata"]["asset_id"]
-            print(f"Deleting existing notebook asset {asset_id}...")
-            d_status, _ = api_call(
-                "DELETE",
-                f"{platform_url}/v2/notebooks/{asset_id}?project_id={project_id}",
-                token,
-            )
-            print(f"Delete HTTP {d_status}")
+    # ── Delete existing notebook asset with same name ─────────────────────────
+    assets = client.data_assets.get_details()
+    for asset in assets.get("resources", []):
+        meta = asset.get("metadata", {})
+        entity = asset.get("entity", {})
+        # notebook assets have asset_type == "notebook"
+        if meta.get("name") == notebook_name and entity.get("asset", {}).get("asset_type") == "notebook":
+            existing_id = meta["asset_id"]
+            print(f"Deleting existing notebook asset {existing_id}...")
+            client.data_assets.delete(existing_id)
+            print("Deleted.")
+            break
 
-    # ── Read notebook content ─────────────────────────────────────────────────
+    # ── Create proper Notebook asset using the notebook store ─────────────────
     with open(notebook_file) as f:
-        nb = json.load(f)
+        nb_content = json.load(f)
 
-    # ── Create as a proper Notebook asset via POST /v2/notebooks ─────────────
-    payload = {
-        "name": notebook_name,
-        "project_id": project_id,
-        "runtime": {
-            "environment": "default_py3.11",
-        },
-        "notebook": nb,
+    meta_props = {
+        client.repository.NotebookMetaNames.NAME: notebook_name,
+        client.repository.NotebookMetaNames.RUNTIME_UID: "default_py3.11",
     }
 
     print(f"Creating notebook asset '{notebook_name}'...")
-    status, body = api_call("POST", f"{platform_url}/v2/notebooks", token, payload)
-    print(f"Create HTTP {status}: {json.dumps(body, indent=2)}")
+    stored = client.repository.store_notebook(
+        meta_props=meta_props,
+        notebook=nb_content,
+    )
 
-    if status >= 400:
-        print(f"❌ Failed with status {status}")
-        sys.exit(1)
-
-    asset_id = body.get("metadata", {}).get("asset_id", "unknown")
+    asset_id = client.repository.get_notebook_id(stored)
     print(f"✅ Notebook asset created in wx.ai project (asset_id={asset_id})")
 
 
