@@ -20,5 +20,5 @@ jobs:
         env:
           IBM_CLOUD_API_KEY: ${{ secrets.IBM_CLOUD_API_KEY }}
           WX_PROJECT_ID: ${{ secrets.WX_PROJECT_ID }}
-          WX_URL: ${{ secrets.WX_URL }}
+          WX_PLATFORM_URL: https://api.dataplatform.cloud.ibm.com
         run: python3 .github/scripts/wxai_sync.py wxai_git_poc.ipynb

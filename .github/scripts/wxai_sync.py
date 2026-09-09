@@ -51,10 +51,11 @@ def api_call(method, url, token, body=None):
 
 
 def main(notebook_file):
-    api_key    = os.environ["IBM_CLOUD_API_KEY"]
-    project_id = os.environ["WX_PROJECT_ID"]
-    wx_url     = os.environ["WX_URL"].rstrip("/")
+    api_key      = os.environ["IBM_CLOUD_API_KEY"]
+    project_id   = os.environ["WX_PROJECT_ID"]
+    platform_url = os.environ["WX_PLATFORM_URL"].rstrip("/")
 
+    # IAM token always comes from cloud.ibm.com regardless of region
     print("Obtaining IAM token...")
     token = get_iam_token(api_key)
     print("Token obtained.")
@@ -64,7 +65,7 @@ def main(notebook_file):
     # ── Find and delete existing notebook asset with same name ────────────────
     status, body = api_call(
         "POST",
-        f"{wx_url}/v2/asset_types/notebook/search?project_id={project_id}",
+        f"{platform_url}/v2/asset_types/notebook/search?project_id={project_id}",
         token,
         {"query": f"asset.name:{notebook_name}"},
     )
@@ -75,7 +76,7 @@ def main(notebook_file):
             print(f"Deleting existing notebook asset {asset_id}...")
             d_status, _ = api_call(
                 "DELETE",
-                f"{wx_url}/v2/notebooks/{asset_id}?project_id={project_id}",
+                f"{platform_url}/v2/notebooks/{asset_id}?project_id={project_id}",
                 token,
             )
             print(f"Delete HTTP {d_status}")
@@ -95,7 +96,7 @@ def main(notebook_file):
     }
 
     print(f"Creating notebook asset '{notebook_name}'...")
-    status, body = api_call("POST", f"{wx_url}/v2/notebooks", token, payload)
+    status, body = api_call("POST", f"{platform_url}/v2/notebooks", token, payload)
     print(f"Create HTTP {status}: {json.dumps(body, indent=2)}")
 
     if status >= 400:
