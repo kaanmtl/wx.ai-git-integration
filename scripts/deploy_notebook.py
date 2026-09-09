@@ -121,10 +121,9 @@ def resolve_env_guid(token: str, project_id: str) -> str:
 def find_existing_notebook(token: str, project_id: str) -> tuple[str | None, str | None]:
     """Return (notebook_guid, asset_id) for an existing notebook, or (None, None)."""
     status, resp = api(
-        "POST",
-        f"{PLATFORM_URL}/wx/v2/notebooks/list?project_id={project_id}",
+        "GET",
+        f"{PLATFORM_URL}/v2/notebooks?project_id={project_id}",
         token,
-        {},
     )
     print(f"Notebook list HTTP {status}")
     for nb in resp.get("notebooks", []):
@@ -138,14 +137,14 @@ def find_existing_notebook(token: str, project_id: str) -> tuple[str | None, str
 
 
 def create_notebook(token: str, project_id: str, env_guid: str, nb_content: dict) -> str:
-    """POST /wx/v2/notebooks — create a new Notebook asset with inline content."""
+    """POST /v2/notebooks — create a new Notebook asset with inline content."""
     payload = {
         "name":     NOTEBOOK_NAME,
         "project":  project_id,
         "runtime":  {"environment": env_guid},
         "notebook": nb_content,
     }
-    status, resp = api("POST", f"{PLATFORM_URL}/wx/v2/notebooks", token, payload)
+    status, resp = api("POST", f"{PLATFORM_URL}/v2/notebooks", token, payload)
     print(f"Create notebook HTTP {status}")
     if status >= 400:
         print(json.dumps(resp, indent=2))
