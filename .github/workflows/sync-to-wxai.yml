@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "wxai_git_poc.ipynb"   # only trigger when the notebook itself changes
+      - "wxai_git_poc.ipynb"
 
 jobs:
   sync:
@@ -13,37 +13,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ── 1. Check out the repo ──────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Get an IBM Cloud IAM bearer token ──────────────────────────────
-      - name: Obtain IAM token
-        id: iam
-        run: |
-          RESPONSE=$(curl -s -X POST \
-            "https://iam.cloud.ibm.com/identity/token" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=urn:ibm:params:oauth:grant-type:apikey&apikey=${{ secrets.IBM_CLOUD_API_KEY }}")
+      - name: Install dependencies
+        run: pip install ibm-watson-machine-learning --quiet
 
-          TOKEN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-
-      # ── 3. Find + delete existing notebook asset ───────────────────────────
-      - name: Delete existing notebook asset (if any)
-        run: |
-          python3 .github/scripts/wxai_sync.py delete \
-            "${{ secrets.WX_URL }}" \
-            "${{ secrets.WX_PROJECT_ID }}" \
-            "${{ steps.iam.outputs.token }}" \
-            "wxai_git_poc.ipynb"
-
-      # ── 4. Create notebook asset via /v2/notebooks ─────────────────────────
-      - name: Create notebook asset in wx.ai project
-        run: |
-          python3 .github/scripts/wxai_sync.py create \
-            "${{ secrets.WX_URL }}" \
-            "${{ secrets.WX_PROJECT_ID }}" \
-            "${{ steps.iam.outputs.token }}" \
-            "wxai_git_poc.ipynb"
+      - name: Sync notebook to wx.ai project
+        env:
+          IBM_CLOUD_API_KEY: ${{ secrets.IBM_CLOUD_API_KEY }}
+          WX_PROJECT_ID: ${{ secrets.WX_PROJECT_ID }}
+          WX_URL: ${{ secrets.WX_URL }}
+        run: python3 .github/scripts/wxai_sync.py create "$WX_URL" "$WX_PROJECT_ID" "$IBM_CLOUD_API_KEY" wxai_git_poc.ipynb

@@ -1,100 +1,72 @@
 #!/usr/bin/env python3
 """
-wxai_sync.py — helper used by GitHub Actions to sync a notebook to watsonx.ai SaaS.
+wxai_sync.py — syncs a notebook to a watsonx.ai SaaS project using the WML SDK.
 
 Usage:
-  python3 wxai_sync.py delete <wx_url> <project_id> <iam_token> <notebook_name>
-  python3 wxai_sync.py create <wx_url> <project_id> <iam_token> <notebook_file>
+  python3 wxai_sync.py create <wx_url> <project_id> <api_key> <notebook_file>
 """
 
 import json
 import sys
-import urllib.request
-import urllib.error
+import os
 
 
-def headers(token):
-    return {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
+def create(wx_url, project_id, api_key, notebook_file):
+    from ibm_watson_machine_learning import APIClient
+    from ibm_watson_machine_learning.metanames import AssetsMetaNames
+
+    wml_credentials = {
+        "url": wx_url,
+        "apikey": api_key,
     }
 
+    client = APIClient(wml_credentials)
+    client.set.default_project(project_id)
 
-def request(method, url, token, body=None):
-    data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(url, data=data, headers=headers(token), method=method)
-    try:
-        with urllib.request.urlopen(req) as resp:
-            raw = resp.read()
-            return resp.status, json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        raw = e.read()
-        try:
-            return e.code, json.loads(raw)
-        except Exception:
-            return e.code, {"raw": raw.decode(errors="replace")}
-
-
-def find_asset(wx_url, project_id, token, notebook_name):
-    """Search for an existing notebook asset by name."""
-    url = f"{wx_url}/v2/asset_types/notebook/search?project_id={project_id}"
-    status, body = request("POST", url, token, {"query": f"asset.name:{notebook_name}"})
-    print(f"Search HTTP {status}: {json.dumps(body, indent=2)}")
-    if status < 300:
-        results = body.get("results", [])
-        if results:
-            return results[0]["metadata"]["asset_id"]
-    return None
-
-
-def delete_asset(wx_url, project_id, token, notebook_name):
-    """Delete an existing notebook asset if it exists."""
-    asset_id = find_asset(wx_url, project_id, token, notebook_name)
-    if not asset_id:
-        print("No existing asset found — nothing to delete.")
-        return
-    url = f"{wx_url}/v2/notebooks/{asset_id}?project_id={project_id}"
-    status, body = request("DELETE", url, token)
-    print(f"Delete HTTP {status}: {json.dumps(body, indent=2)}")
-    if status >= 400:
-        print(f"WARNING: delete returned {status} — continuing anyway.")
-
-
-def create_asset(wx_url, project_id, token, notebook_file):
-    """Create a new notebook asset from a local .ipynb file."""
+    # Read notebook content
     with open(notebook_file) as f:
         nb = json.load(f)
 
-    payload = {
-        "name": notebook_file,
-        "project_id": project_id,
-        "runtime": {
-            "environment": "default_py3.11",
-        },
-        "notebook": nb,
+    notebook_name = os.path.basename(notebook_file)
+
+    # Check if notebook already exists and delete it first
+    assets = client.data_assets.get_details()
+    existing_id = None
+    for asset in assets.get("resources", []):
+        if asset.get("metadata", {}).get("name") == notebook_name:
+            existing_id = asset["metadata"]["asset_id"]
+            break
+
+    if existing_id:
+        print(f"Found existing asset {existing_id} — deleting...")
+        client.data_assets.delete(existing_id)
+        print("Deleted.")
+
+    # Create notebook asset
+    meta_props = {
+        AssetsMetaNames.NAME: notebook_name,
+        AssetsMetaNames.DESCRIPTION: "Synced from GitHub via GitHub Actions",
     }
 
-    url = f"{wx_url}/v2/notebooks"
-    status, body = request("POST", url, token, payload)
-    print(f"Create HTTP {status}: {json.dumps(body, indent=2)}")
-    if status >= 400:
-        print(f"❌ Create failed with status {status}")
-        sys.exit(1)
-    asset_id = body.get("metadata", {}).get("asset_id", "unknown")
+    # Write notebook to a temp file so we can upload it
+    tmp_path = f"/tmp/{notebook_name}"
+    with open(tmp_path, "w") as f:
+        json.dump(nb, f)
+
+    asset_details = client.data_assets.create(notebook_name, tmp_path)
+    asset_id = client.data_assets.get_id(asset_details)
     print(f"✅ Notebook synced to wx.ai project (asset_id={asset_id})")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 6:
-        print("Usage: wxai_sync.py <delete|create> <wx_url> <project_id> <iam_token> <notebook_name>")
+    if len(sys.argv) != 5:
+        print("Usage: wxai_sync.py create <wx_url> <project_id> <api_key> <notebook_file>")
         sys.exit(1)
 
-    cmd, wx_url, project_id, iam_token, notebook = sys.argv[1:]
+    cmd, wx_url, project_id, api_key, notebook_file = sys.argv[1:]
 
-    if cmd == "delete":
-        delete_asset(wx_url, project_id, iam_token, notebook)
-    elif cmd == "create":
-        create_asset(wx_url, project_id, iam_token, notebook)
+    if cmd == "create":
+        create(wx_url, project_id, api_key, notebook_file)
     else:
         print(f"Unknown command: {cmd}")
         sys.exit(1)
