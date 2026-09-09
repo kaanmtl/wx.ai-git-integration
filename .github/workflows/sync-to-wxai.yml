@@ -21,6 +21,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install ibm-watsonx-ai SDK
+        run: pip install --quiet ibm-watsonx-ai
+
       - name: Run Deploy Script
         env:
           IBM_CLOUD_API_KEY: ${{ secrets.IBM_CLOUD_API_KEY }}
