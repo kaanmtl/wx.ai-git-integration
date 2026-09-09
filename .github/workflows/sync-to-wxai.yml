@@ -24,4 +24,4 @@ jobs:
           IBM_CLOUD_API_KEY: ${{ secrets.IBM_CLOUD_API_KEY }}
           WX_PROJECT_ID: ${{ secrets.WX_PROJECT_ID }}
           WX_URL: ${{ secrets.WX_URL }}
-        run: python3 .github/scripts/wxai_sync.py create "$WX_URL" "$WX_PROJECT_ID" "$IBM_CLOUD_API_KEY" wxai_git_poc.ipynb
+        run: python3 .github/scripts/wxai_sync.py wxai_git_poc.ipynb
