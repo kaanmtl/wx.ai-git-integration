@@ -5,8 +5,7 @@ on:
     branches:
       - master
     paths:
-      - 'notebooks/**.ipynb'   # only triggers when notebooks are modified
-      - 'wx-ai-git-pull.ipynb' # UI-pushed notebook lives at the repo root
+      - 'wx-ai-git-pull.ipynb' # UI-pushed notebook (repo root) — the only one synced
   workflow_dispatch:           # adds a "Run workflow" button for manual runs
 
 jobs:

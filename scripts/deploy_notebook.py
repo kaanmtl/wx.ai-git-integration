@@ -20,7 +20,6 @@ Env vars required:
   WATSONX_PROJECT_ID   watsonx.ai project GUID
 """
 
-import glob
 import json
 import os
 import platform
@@ -31,8 +30,10 @@ import urllib.error
 from ibm_watsonx_ai import APIClient, Credentials
 
 # ── Config ────────────────────────────────────────────────────────────────────
-NOTEBOOK_DIR  = "notebooks"   # every *.ipynb here is synced; asset name = file stem
-ROOT_NOTEBOOKS = ["wx-ai-git-pull.ipynb"]   # UI-pushed notebooks that live at repo root
+# Only these notebooks are synced. Asset name = file stem. UPDATE-ONLY: the
+# notebook must already exist in the project (it keeps its runtime); the script
+# never creates one, so it can never leave a duplicate behind.
+SYNC_NOTEBOOKS = ["wx-ai-git-pull.ipynb"]
 WX_URL        = "https://us-south.ml.cloud.ibm.com"
 PLATFORM_URL  = "https://api.dataplatform.cloud.ibm.com"
 IAM_URL       = "https://iam.cloud.ibm.com/identity/token"
@@ -130,15 +131,31 @@ def find_existing_notebook(token: str, project_id: str, name: str) -> tuple[str 
     )
     print(f"Notebook list HTTP {status}")
     items = resp.get("notebooks") or resp.get("resources") or []
-    names = [n.get("metadata", {}).get("name") for n in items]
-    print(f"::notice::{name}: list HTTP {status}, keys={sorted(resp)}, notebooks={names}")
-    for nb in items:
-        meta = nb.get("metadata", {})
-        if meta.get("name") in (name, f"{name}.ipynb"):
-            nb_guid  = meta.get("guid") or meta.get("asset_id")
-            asset_id = meta.get("asset_id") or nb_guid
-            print(f"Found existing notebook: {name} (guid={nb_guid})")
-            return nb_guid, asset_id
+
+    def _name(nb: dict):
+        meta, ent = nb.get("metadata", {}), nb.get("entity", {})
+        return (meta.get("name") or ent.get("name") or nb.get("name")
+                or ent.get("metadata", {}).get("name"))
+
+    if status >= 400 or (items and not any(_name(n) for n in items)):
+        # Refuse to guess: creating here would duplicate the notebook.
+        print(f"::error::Cannot read notebook names (HTTP {status}); "
+              f"first item: {json.dumps(items[0] if items else resp)[:1500]}")
+        sys.exit(1)
+
+    matches = [nb for nb in items if _name(nb) in (name, f"{name}.ipynb")]
+    if len(matches) > 1:
+        print(f"❌ {len(matches)} notebooks named '{name}' — delete the extras in the project, then re-run:")
+        for nb in matches:
+            m = nb.get("metadata", {})
+            print(f"::error::duplicate asset_id={m.get('asset_id') or m.get('guid')} created={m.get('created_at')}")
+        sys.exit(1)
+    if matches:
+        meta     = matches[0].get("metadata", {})
+        nb_guid  = meta.get("guid") or meta.get("asset_id")
+        asset_id = meta.get("asset_id") or nb_guid
+        print(f"Found existing notebook: {name} (guid={nb_guid})")
+        return nb_guid, asset_id
     return None, None
 
 
@@ -147,18 +164,20 @@ def upload_to_cos(client: APIClient, name: str, path: str) -> tuple[str, str]:
     Upload notebook to project COS via SDK and return (data_asset_id, file_reference).
     file_reference is the COS object key extracted from the attachment details.
     """
-    # Delete any existing data asset with the same name first
+    # Use a temp name that can never equal a real notebook's name, so the
+    # cleanup below cannot delete the notebook asset itself.
+    tmp_name = f"{name}__upload_tmp"
     try:
         for asset in client.data_assets.get_details().get("resources", []):
-            if asset.get("metadata", {}).get("name") == name:
+            if asset.get("metadata", {}).get("name") == tmp_name:
                 aid = asset["metadata"]["asset_id"]
-                print(f"Removing old data asset {aid}...")
+                print(f"Removing stale temp data asset {aid}...")
                 client.data_assets.delete(aid)
     except Exception as e:
         print(f"Cleanup warning: {e}")
 
-    print(f"Uploading {path} to COS...")
-    asset_details = client.data_assets.create(name, path)
+    print(f"Uploading {path} to COS as {tmp_name}...")
+    asset_details = client.data_assets.create(tmp_name, path)
     data_asset_id = client.data_assets.get_id(asset_details)
     print(f"Data asset created: {data_asset_id}")
 
@@ -251,30 +270,28 @@ def deploy():
     # 3. Resolve environment GUID
     env_guid = resolve_env_guid(token, project_id)
 
-    paths = sorted(glob.glob(os.path.join(NOTEBOOK_DIR, "*.ipynb")))
-    paths += [p for p in ROOT_NOTEBOOKS if os.path.exists(p)]
+    paths = [p for p in SYNC_NOTEBOOKS if os.path.exists(p)]
     if not paths:
-        print(f"❌ No notebooks found in {NOTEBOOK_DIR}/")
+        print(f"❌ None of {SYNC_NOTEBOOKS} found in the repo")
         sys.exit(1)
 
     for path in paths:
         name = os.path.splitext(os.path.basename(path))[0]
         print(f"\n=== {name} ===")
 
-        # 4. Upload notebook to COS via SDK, retrieve file_reference
+        # 4. Find the existing notebook FIRST (before touching anything)
+        nb_guid, _ = find_existing_notebook(token, project_id, name)
+        if not nb_guid:
+            print(f"::error::Notebook '{name}' not found in the project. Not creating it "
+                  f"(would make a duplicate / runtime-less copy). Create or pull it in the UI first.")
+            sys.exit(1)
+
+        # 5. Upload new content to COS via SDK, retrieve file_reference
         data_asset_id, file_reference = upload_to_cos(client, name, path)
 
-        # 5. Check for existing notebook
-        nb_guid, _ = find_existing_notebook(token, project_id, name)
-
-        if nb_guid:
-            # 6a. Update existing notebook
-            print(f"::notice::{name}: UPDATING existing notebook {nb_guid}")
-            update_notebook(token, project_id, nb_guid, env_guid, file_reference)
-        else:
-            # 6b. Create new notebook
-            print(f"::notice::{name}: no existing notebook found, CREATING")
-            create_notebook(token, project_id, env_guid, file_reference, name)
+        # 6. Merge: update the existing notebook in place + (re)attach the runtime
+        print(f"::notice::{name}: UPDATING existing notebook {nb_guid}")
+        update_notebook(token, project_id, nb_guid, env_guid, file_reference)
 
         # 7. Clean up intermediate data asset
         try:
