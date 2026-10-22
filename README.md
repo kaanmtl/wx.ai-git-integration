@@ -52,7 +52,7 @@ Note the full repo name: `<your-github-username>/wxai-git-poc`.
    - **Git provider:** GitHub
    - **Repository URL:** `https://github.com/<owner>/wxai-git-poc`
    - **Personal access token:** your GitHub PAT
-   - **Branch:** `master`
+   - **Branch:** `master` (this repo's branch is `master`, **not** `main` — set it exactly, otherwise UI pushes fail or go to the wrong branch)
 4. Click **Save**.
 
 > After this, every **Sync / Push** in the UI will commit the notebook and any tracked files to the `master` branch.
@@ -96,12 +96,16 @@ Accuracy : 0.9400
 
 ## Step 6 — Push the notebook back to GitHub via the UI
 
-1. In the notebook editor click the **Git** icon (top-right toolbar) **or** go to  
+1. In the notebook editor click the **Git** icon (top-right toolbar) **or** go to
    Project → **Manage → Git integration → Sync**.
 2. Select `wxai_git_poc.ipynb` and click **Push**.
 3. Verify both files appear on GitHub:
    - `wxai_git_poc.ipynb`
    - `model_summary.json`
+
+> **Branch name:** UI pushes from watsonx.ai go to **`master`** — this repo has no `main` branch in use. Commits made this way appear as *"Published from Watson Studio."* on `master`.
+>
+> **Path:** the UI publishes notebooks to the **repo root** (e.g. `wx-ai-git-pull.ipynb`), not to `notebooks/`. The GitHub Actions workflow only watches `notebooks/**.ipynb`, so a UI push does **not** trigger a sync back into watsonx.ai.
 
 This closes the full round-trip. ✅
 
