@@ -20,6 +20,7 @@ Env vars required:
   WATSONX_PROJECT_ID   watsonx.ai project GUID
 """
 
+import glob
 import json
 import os
 import platform
@@ -30,8 +31,7 @@ import urllib.error
 from ibm_watsonx_ai import APIClient, Credentials
 
 # ── Config ────────────────────────────────────────────────────────────────────
-NOTEBOOK_PATH = "notebooks/wxai_git_poc.ipynb"
-NOTEBOOK_NAME = "wxai_git_poc"
+NOTEBOOK_DIR  = "notebooks"   # every *.ipynb here is synced; asset name = file stem
 WX_URL        = "https://us-south.ml.cloud.ibm.com"
 PLATFORM_URL  = "https://api.dataplatform.cloud.ibm.com"
 IAM_URL       = "https://iam.cloud.ibm.com/identity/token"
@@ -120,7 +120,7 @@ def resolve_env_guid(token: str, project_id: str) -> str:
     return guid
 
 
-def find_existing_notebook(token: str, project_id: str) -> tuple[str | None, str | None]:
+def find_existing_notebook(token: str, project_id: str, name: str) -> tuple[str | None, str | None]:
     """Return (notebook_guid, asset_id) for an existing notebook, or (None, None)."""
     status, resp = api(
         "GET",
@@ -130,15 +130,15 @@ def find_existing_notebook(token: str, project_id: str) -> tuple[str | None, str
     print(f"Notebook list HTTP {status}")
     for nb in resp.get("notebooks", []):
         meta = nb.get("metadata", {})
-        if meta.get("name") == NOTEBOOK_NAME:
+        if meta.get("name") == name:
             nb_guid  = meta.get("guid") or meta.get("asset_id")
             asset_id = meta.get("asset_id") or nb_guid
-            print(f"Found existing notebook: {NOTEBOOK_NAME} (guid={nb_guid})")
+            print(f"Found existing notebook: {name} (guid={nb_guid})")
             return nb_guid, asset_id
     return None, None
 
 
-def upload_to_cos(client: APIClient) -> tuple[str, str]:
+def upload_to_cos(client: APIClient, name: str, path: str) -> tuple[str, str]:
     """
     Upload notebook to project COS via SDK and return (data_asset_id, file_reference).
     file_reference is the COS object key extracted from the attachment details.
@@ -146,15 +146,15 @@ def upload_to_cos(client: APIClient) -> tuple[str, str]:
     # Delete any existing data asset with the same name first
     try:
         for asset in client.data_assets.get_details().get("resources", []):
-            if asset.get("metadata", {}).get("name") == NOTEBOOK_NAME:
+            if asset.get("metadata", {}).get("name") == name:
                 aid = asset["metadata"]["asset_id"]
                 print(f"Removing old data asset {aid}...")
                 client.data_assets.delete(aid)
     except Exception as e:
         print(f"Cleanup warning: {e}")
 
-    print(f"Uploading {NOTEBOOK_PATH} to COS...")
-    asset_details = client.data_assets.create(NOTEBOOK_NAME, NOTEBOOK_PATH)
+    print(f"Uploading {path} to COS...")
+    asset_details = client.data_assets.create(name, path)
     data_asset_id = client.data_assets.get_id(asset_details)
     print(f"Data asset created: {data_asset_id}")
 
@@ -184,10 +184,10 @@ def upload_to_cos(client: APIClient) -> tuple[str, str]:
 
 
 def create_notebook(token: str, project_id: str, env_guid: str,
-                    file_reference: str) -> str:
+                    file_reference: str, name: str) -> str:
     """POST /v2/notebooks — create a new Notebook asset using a COS file_reference."""
     payload = {
-        "name":           NOTEBOOK_NAME,
+        "name":           name,
         "project":        project_id,
         "file_reference": file_reference,
         "runtime":        {"environment": env_guid},
@@ -247,25 +247,34 @@ def deploy():
     # 3. Resolve environment GUID
     env_guid = resolve_env_guid(token, project_id)
 
-    # 4. Upload notebook to COS via SDK, retrieve file_reference
-    data_asset_id, file_reference = upload_to_cos(client)
+    paths = sorted(glob.glob(os.path.join(NOTEBOOK_DIR, "*.ipynb")))
+    if not paths:
+        print(f"❌ No notebooks found in {NOTEBOOK_DIR}/")
+        sys.exit(1)
 
-    # 5. Check for existing notebook
-    nb_guid, _ = find_existing_notebook(token, project_id)
+    for path in paths:
+        name = os.path.splitext(os.path.basename(path))[0]
+        print(f"\n=== {name} ===")
 
-    if nb_guid:
-        # 6a. Update existing notebook
-        update_notebook(token, project_id, nb_guid, env_guid, file_reference)
-    else:
-        # 6b. Create new notebook
-        create_notebook(token, project_id, env_guid, file_reference)
+        # 4. Upload notebook to COS via SDK, retrieve file_reference
+        data_asset_id, file_reference = upload_to_cos(client, name, path)
 
-    # 7. Clean up intermediate data asset
-    try:
-        client.data_assets.delete(data_asset_id)
-        print("Intermediate data asset cleaned up.")
-    except Exception:
-        pass
+        # 5. Check for existing notebook
+        nb_guid, _ = find_existing_notebook(token, project_id, name)
+
+        if nb_guid:
+            # 6a. Update existing notebook
+            update_notebook(token, project_id, nb_guid, env_guid, file_reference)
+        else:
+            # 6b. Create new notebook
+            create_notebook(token, project_id, env_guid, file_reference, name)
+
+        # 7. Clean up intermediate data asset
+        try:
+            client.data_assets.delete(data_asset_id)
+            print("Intermediate data asset cleaned up.")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
