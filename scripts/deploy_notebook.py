@@ -123,7 +123,7 @@ def resolve_env_guid(token: str, project_id: str) -> str:
 
 
 def find_existing_notebook(token: str, project_id: str, name: str) -> tuple[str | None, str | None]:
-    """Return (notebook_guid, asset_id) for an existing notebook, or (None, None)."""
+    """Return (notebook_guid, existing_runtime_environment) or (None, None)."""
     status, resp = api(
         "GET",
         f"{PLATFORM_URL}/v2/notebooks?project_id={project_id}",
@@ -134,8 +134,8 @@ def find_existing_notebook(token: str, project_id: str, name: str) -> tuple[str 
 
     def _name(nb: dict):
         meta, ent = nb.get("metadata", {}), nb.get("entity", {})
-        return (meta.get("name") or ent.get("name") or nb.get("name")
-                or ent.get("metadata", {}).get("name"))
+        return (ent.get("asset", {}).get("asset_name") or meta.get("name")
+                or ent.get("name") or nb.get("name"))
 
     if status >= 400 or (items and not any(_name(n) for n in items)):
         # Refuse to guess: creating here would duplicate the notebook.
@@ -153,9 +153,9 @@ def find_existing_notebook(token: str, project_id: str, name: str) -> tuple[str 
     if matches:
         meta     = matches[0].get("metadata", {})
         nb_guid  = meta.get("guid") or meta.get("asset_id")
-        asset_id = meta.get("asset_id") or nb_guid
-        print(f"Found existing notebook: {name} (guid={nb_guid})")
-        return nb_guid, asset_id
+        existing_env = matches[0].get("entity", {}).get("runtime", {}).get("environment")
+        print(f"Found existing notebook: {name} (guid={nb_guid}, runtime={'kept' if existing_env else 'none'})")
+        return nb_guid, existing_env
     return None, None
 
 
@@ -280,7 +280,7 @@ def deploy():
         print(f"\n=== {name} ===")
 
         # 4. Find the existing notebook FIRST (before touching anything)
-        nb_guid, _ = find_existing_notebook(token, project_id, name)
+        nb_guid, existing_env = find_existing_notebook(token, project_id, name)
         if not nb_guid:
             print(f"::error::Notebook '{name}' not found in the project. Not creating it "
                   f"(would make a duplicate / runtime-less copy). Create or pull it in the UI first.")
@@ -291,7 +291,7 @@ def deploy():
 
         # 6. Merge: update the existing notebook in place + (re)attach the runtime
         print(f"::notice::{name}: UPDATING existing notebook {nb_guid}")
-        update_notebook(token, project_id, nb_guid, env_guid, file_reference)
+        update_notebook(token, project_id, nb_guid, existing_env or env_guid, file_reference)
 
         # 7. Clean up intermediate data asset
         try:
