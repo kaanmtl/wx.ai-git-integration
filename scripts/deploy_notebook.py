@@ -32,6 +32,7 @@ from ibm_watsonx_ai import APIClient, Credentials
 
 # ── Config ────────────────────────────────────────────────────────────────────
 NOTEBOOK_DIR  = "notebooks"   # every *.ipynb here is synced; asset name = file stem
+ROOT_NOTEBOOKS = ["wx-ai-git-pull.ipynb"]   # UI-pushed notebooks that live at repo root
 WX_URL        = "https://us-south.ml.cloud.ibm.com"
 PLATFORM_URL  = "https://api.dataplatform.cloud.ibm.com"
 IAM_URL       = "https://iam.cloud.ibm.com/identity/token"
@@ -251,6 +252,7 @@ def deploy():
     env_guid = resolve_env_guid(token, project_id)
 
     paths = sorted(glob.glob(os.path.join(NOTEBOOK_DIR, "*.ipynb")))
+    paths += [p for p in ROOT_NOTEBOOKS if os.path.exists(p)]
     if not paths:
         print(f"❌ No notebooks found in {NOTEBOOK_DIR}/")
         sys.exit(1)
