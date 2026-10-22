@@ -128,9 +128,12 @@ def find_existing_notebook(token: str, project_id: str, name: str) -> tuple[str 
         token,
     )
     print(f"Notebook list HTTP {status}")
-    for nb in resp.get("notebooks", []):
+    items = resp.get("notebooks") or resp.get("resources") or []
+    names = [n.get("metadata", {}).get("name") for n in items]
+    print(f"::notice::{name}: list HTTP {status}, keys={sorted(resp)}, notebooks={names}")
+    for nb in items:
         meta = nb.get("metadata", {})
-        if meta.get("name") == name:
+        if meta.get("name") in (name, f"{name}.ipynb"):
             nb_guid  = meta.get("guid") or meta.get("asset_id")
             asset_id = meta.get("asset_id") or nb_guid
             print(f"Found existing notebook: {name} (guid={nb_guid})")
@@ -264,9 +267,11 @@ def deploy():
 
         if nb_guid:
             # 6a. Update existing notebook
+            print(f"::notice::{name}: UPDATING existing notebook {nb_guid}")
             update_notebook(token, project_id, nb_guid, env_guid, file_reference)
         else:
             # 6b. Create new notebook
+            print(f"::notice::{name}: no existing notebook found, CREATING")
             create_notebook(token, project_id, env_guid, file_reference, name)
 
         # 7. Clean up intermediate data asset
