@@ -27,7 +27,7 @@ gh repo create wxai-git-poc --public --description "watsonx.ai SaaS Git integrat
 # Option B: GitHub UI
 # 1. github.com → + → New repository
 # 2. Name: wxai-git-poc
-# 3. Add a README (so main branch exists)
+# 3. Add a README (so master branch exists)
 # 4. Click Create repository
 ```
 
@@ -52,10 +52,10 @@ Note the full repo name: `<your-github-username>/wxai-git-poc`.
    - **Git provider:** GitHub
    - **Repository URL:** `https://github.com/<owner>/wxai-git-poc`
    - **Personal access token:** your GitHub PAT
-   - **Branch:** `main`
+   - **Branch:** `master`
 4. Click **Save**.
 
-> After this, every **Sync / Push** in the UI will commit the notebook and any tracked files to the `main` branch.
+> After this, every **Sync / Push** in the UI will commit the notebook and any tracked files to the `master` branch.
 
 ---
 
@@ -89,7 +89,7 @@ Expected output at the end of each section:
 ✅  Loaded from data asset (200 rows)
 Accuracy : 0.9400
 ✅  Wrote model_summary.json
-✅  Created file in GitHub: https://github.com/<owner>/wxai-git-poc/blob/main/model_summary.json
+✅  Created file in GitHub: https://github.com/<owner>/wxai-git-poc/blob/master/model_summary.json
 ```
 
 ---
@@ -156,10 +156,10 @@ wxai-git-poc/
 
 ## GitHub Actions — Auto-sync to watsonx.ai on push
 
-The workflow at [`.github/workflows/sync-to-wxai.yml`](.github/workflows/sync-to-wxai.yml) runs automatically on every `git push` to `main` that changes any `notebooks/*.ipynb` file. It creates or updates a proper **Notebook asset** (not a generic data asset) in the wx.ai project — openable directly in JupyterLab, with a kernel attached.
+The workflow at [`.github/workflows/sync-to-wxai.yml`](.github/workflows/sync-to-wxai.yml) runs automatically on every `git push` to `master` that changes any `notebooks/*.ipynb` file. It creates or updates a proper **Notebook asset** (not a generic data asset) in the wx.ai project — openable directly in JupyterLab, with a kernel attached.
 
 ```
-git push to main  (notebooks/*.ipynb changed)
+git push to master (notebooks/*.ipynb changed)
       │
       ▼
 GitHub Actions (sync-to-wxai.yml)
@@ -191,7 +191,7 @@ Go to your repo → **Settings → Secrets and variables → Actions → New rep
 # Make any change to the notebook and push
 git add notebooks/wxai_git_poc.ipynb
 git commit -m "test: trigger wx.ai sync"
-git push origin main
+git push origin master
 ```
 
 Then watch the **Actions** tab — the `Sync Notebook to watsonx.ai` workflow will appear. When it turns green, open your wx.ai project → **Assets → Notebooks** and confirm the notebook timestamp updated and the asset type is **Notebook** (not Binary file).
@@ -219,7 +219,7 @@ Key findings discovered during development:
 ┌─────────────────────────────────────────────────────────────┐
 │                     FULL ROUND-TRIP                         │
 │                                                             │
-│  wx.ai (edit)  ──Push──►  GitHub (main branch)             │
+│  wx.ai (edit)  ──Push──►  GitHub (master branch)            │
 │                                                             │
 │  GitHub (edit) ──GitHub Actions──►  wx.ai (asset updated)  │
 └─────────────────────────────────────────────────────────────┘

@@ -3,7 +3,7 @@ name: Sync Notebook to watsonx.ai
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - 'notebooks/**.ipynb'   # only triggers when notebooks are modified
   workflow_dispatch:           # adds a "Run workflow" button for manual runs
